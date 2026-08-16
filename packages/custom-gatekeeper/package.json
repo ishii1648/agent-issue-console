@@ -6,8 +6,11 @@
   "main": "./src/index.ts",
   "scripts": {
     "build": "tsc",
+    "lint": "tsc --noEmit",
     "types:check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "tsc && node --test __tests__/*.node.test.mjs",
+    "test:worker": "vitest run --config vitest.config.ts",
+    "preview": "tsc && node scripts/preview-ui.mjs"
   },
   "dependencies": {
     "@gadgets/workshop-shared": "workspace:*",

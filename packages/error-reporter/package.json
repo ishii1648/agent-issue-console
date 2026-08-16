@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "types:check": "tsc --noEmit",
-    "test": "vitest run src/format.test.ts"
+    "test": "tsc && node --test src/*.node.test.mjs"
   },
   "dependencies": {
     "@gadgets/error-reporting": "workspace:*"

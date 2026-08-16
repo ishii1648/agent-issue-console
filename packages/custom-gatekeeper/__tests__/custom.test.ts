@@ -8,13 +8,14 @@ import {
 describe("custom-gatekeeper", () => {
   it("describes an auto-provisioned singleton", () => {
     expect(describeCustomVendor()).toMatchObject({
-      displayName: "Custom Gatekeeper",
+      displayName: "Agent Issue Console",
       autoProvisionsAccount: true,
       providesAuth: false,
     });
     expect(describeCustomAccount()).toMatchObject({
-      displayName: "Custom Gatekeeper",
+      displayName: "Agent Issue Console",
       singleton: { tsType: "CustomSession" },
+      providesUi: { title: "Agent Issue Console" },
     });
   });
 
@@ -39,8 +40,8 @@ describe("custom-gatekeeper", () => {
       message: "Use the internal handbook.",
     });
     expect(observation).toEqual({
-      title: "Read deployment information",
-      description: "Read the custom information configured by this deployment.",
+      title: "Read Agent Issue Console policy information",
+      description: "Read the non-secret deployment identity and product guidance.",
     });
 
     session[Symbol.dispose]();

@@ -12,5 +12,5 @@
     "noEmit": false
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "dist", "node_modules", ".wrangler"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.node.test.mjs", "dist", "node_modules", ".wrangler"]
 }
