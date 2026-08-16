@@ -10,6 +10,11 @@ keeps product logic in the wrapper-owned Agent Issue Console Gatekeeper. See the
 [product brief](docs/product-brief.md), [architecture](docs/architecture.md),
 [security model](docs/security.md), and [setup guide](docs/setup.md).
 
+The root history starts with an `ishii1648`-authored snapshot of
+`cloudflare/cloudflare-os-starter@93f14dfd68ed1c218d2a7c2168753a6d9b22e145`; it intentionally does
+not inherit the starter's commit history. The bootstrap commit trailer and pinned submodule gitlink
+preserve provenance for future reviewed snapshot updates.
+
 ```sh
 git submodule update --init --recursive
 pnpm install

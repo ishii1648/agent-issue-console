@@ -20,13 +20,14 @@ root repository as product code and the submodule as immutable upstream source.
 - Use pnpm (the versions declared by the checkout), not npm or yarn.
 - Extend the starter through wrapper-owned packages, Gatekeepers, service bindings, and Blueprints.
 - Do not modify `cloudflare-os/` without an accepted ADR explaining why wrapper boundaries fail.
+- Do not merge `upstream/main`: this root intentionally imports reviewed starter snapshots without
+  inherited history. Record the old/new upstream SHA and apply the reviewed tree diff as local commits.
 - Add tests for policy, state transitions, redaction, idempotency, timeout reconciliation, and SSRF.
 - Run `pnpm test`, package type checks, and `pnpm check` before publishing changes.
 - Never place credentials in command arguments. Use Wrangler secrets and fake adapters in tests.
 
 ## Repository layout
 
-- `packages/custom-gatekeeper/`: Agent Issue Console capability and HTTP/local UI entrypoint.
+- `packages/custom-gatekeeper/`: Agent Issue Console capability, per-user state, and RPC management UI.
 - `docs/`: product, architecture, security, testing, setup, and runbooks.
 - `cloudflare-os/`: pinned upstream submodule; read-only unless an ADR is approved.
-
