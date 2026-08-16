@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "agent-issue-console-gatekeeper",
+  "main": ".wrangler/validate/src/index.ts",
+  "build": {
+    "command": "pnpm exec capnweb-validate build --out .wrangler/validate",
+    "watch_dir": "src"
+  },
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["allow_irrevocable_stub_storage", "nodejs_compat"],
+  "migrations": [
+    {
+      "tag": "v0",
+      "new_sqlite_classes": ["CustomGatekeeper"]
+    }
+  ],
+  "vars": {
+    "CUSTOM_NAME": "Example organization",
+    "CUSTOM_MESSAGE": "Replace this with information useful to your organization.",
+    "AIC_DEFAULT_REPOSITORY": "ishii1648/agent-issue-console"
+  },
+  "services": [
+    { "binding": "AIC_CORE", "service": "agent-issue-console-core" }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  }
+}

@@ -1,0 +1,557 @@
+import { existsSync } from "node:fs";
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { dirname, join, relative, resolve } from "node:path";
+import { parse, printParseErrorCode } from "jsonc-parser";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// One deployment per checkout; use separate worktrees for concurrent deploys.
+const generatedName = "wrangler.prod.jsonc";
+const generatedPaths = {
+  workshop: join(root, "cloudflare-os/packages/workshop-backend", generatedName),
+  context: join(root, "cloudflare-os/packages/gatekeeper-context", generatedName),
+  agentIssueCore: join(root, "packages/agent-issue-core", generatedName),
+  customGatekeeper: join(root, "packages/custom-gatekeeper", generatedName),
+  errorReporter: join(root, "packages/error-reporter", generatedName),
+};
+const defaultContextArtifactsNamespace = "gatekeeper-context-collections";
+
+const requiredPaths = [
+  "accountId",
+  "workers.workshop.name",
+  "workers.context.name",
+  "workers.agentIssueCore.name",
+  "workers.customGatekeeper.name",
+  "access.issuer",
+  "access.audience",
+  "access.admins",
+  "aiGateway.enabled",
+  "errorReporting.enabled",
+  "context.sharingDomain",
+  "customGatekeeper.name",
+  "customGatekeeper.message",
+  "agentIssueConsole.defaultRepository",
+  "agentIssueConsole.repositories",
+  "agentIssueConsole.dryRun",
+  "agentIssueConsole.llm.provider",
+  "agentIssueConsole.llm.model",
+  "agentIssueConsole.llm.baseUrl",
+  "agentIssueConsole.llm.timeoutMs",
+  "agentIssueConsole.llm.retries",
+  "agentIssueConsole.llm.maxInvestigationSteps",
+  "agentIssueConsole.llm.maxContextCharacters",
+  "agentIssueConsole.llm.maxOutputCharacters",
+  "agentIssueConsole.llm.maxOutputTokens",
+  "agentIssueConsole.browser.timeoutMs",
+  "observability.enabled",
+  "observability.headSamplingRate",
+  "observability.logs.invocationLogs",
+  "observability.traces.enabled",
+  "observability.traces.headSamplingRate",
+];
+
+const aiGatewayPaths = [
+  "aiGateway.name",
+  "aiGateway.accountId",
+  "aiGateway.providers",
+  "aiGateway.workersAi.mode",
+];
+
+const errorReportingPaths = [
+  "workers.errorReporter.name",
+  "errorReporting.environment",
+];
+
+const resourcePaths = [
+  "context.kvNamespaceId",
+  "resources.blueprintsKvNamespaceId",
+  "resources.avatarsKvNamespaceId",
+  "resources.blueprintContentBucket",
+];
+
+function valueAt(object, path) {
+  return path.split(".").reduce((value, key) => value?.[key], object);
+}
+
+export function validateConfig(config) {
+  const activePaths = [
+    ...requiredPaths,
+    ...(config.aiGateway?.enabled ? aiGatewayPaths : []),
+    ...(config.errorReporting?.enabled ? errorReportingPaths : []),
+  ];
+  for (const path of activePaths) {
+    const value = valueAt(config, path);
+    if (value === undefined || value === null || value === "" || Array.isArray(value) && !value.length) {
+      throw new Error(`Missing required deployment value: ${path}`);
+    }
+  }
+
+  for (const path of resourcePaths) {
+    const value = valueAt(config, path);
+    if (value === undefined || value !== null && (typeof value !== "string" || !value)) {
+      throw new Error(`Deployment resource must be null or a non-empty string: ${path}`);
+    }
+  }
+
+  let activeConfig = !config.aiGateway.enabled
+    ? { ...config, aiGateway: { enabled: false } }
+    : config.aiGateway.workersAi.mode === "direct"
+      ? { ...config, aiGateway: {
+        ...config.aiGateway,
+        workersAi: { mode: "direct" },
+      } }
+      : config;
+  if (!config.errorReporting.enabled) {
+    activeConfig = {
+      ...activeConfig,
+      workers: { ...activeConfig.workers, errorReporter: undefined },
+      errorReporting: { enabled: false },
+    };
+  }
+  const placeholder = JSON.stringify(activeConfig).match(/<[^>]+>/)?.[0];
+  if (placeholder) throw new Error(`Replace deployment placeholder ${placeholder}.`);
+
+  const stringPaths = activePaths.filter((path) => ![
+    "access.admins",
+    "aiGateway.enabled",
+    "aiGateway.providers",
+    "errorReporting.enabled",
+    "observability.enabled",
+    "observability.headSamplingRate",
+    "observability.logs.invocationLogs",
+    "observability.traces.enabled",
+    "observability.traces.headSamplingRate",
+    "agentIssueConsole.repositories",
+    "agentIssueConsole.dryRun",
+    "agentIssueConsole.llm.timeoutMs",
+    "agentIssueConsole.llm.retries",
+    "agentIssueConsole.llm.maxInvestigationSteps",
+    "agentIssueConsole.llm.maxContextCharacters",
+    "agentIssueConsole.llm.maxOutputCharacters",
+    "agentIssueConsole.llm.maxOutputTokens",
+    "agentIssueConsole.browser.timeoutMs",
+  ].includes(path));
+  for (const path of stringPaths) {
+    if (typeof valueAt(config, path) !== "string") {
+      throw new Error(`Deployment value must be a string: ${path}`);
+    }
+  }
+
+  if (!/^[a-f\d]{32}$/i.test(config.accountId) ||
+      config.aiGateway.enabled && !/^[a-f\d]{32}$/i.test(config.aiGateway.accountId)) {
+    throw new Error("Cloudflare account IDs must be 32 hexadecimal characters.");
+  }
+  const workerNames = Object.entries(config.workers)
+    .filter(([key]) => key !== "errorReporter" || config.errorReporting.enabled)
+    .map(([, worker]) => worker.name);
+  if (new Set(workerNames).size !== workerNames.length) {
+    throw new Error("Workshop, Context, Rust core, custom Gatekeeper, and Error Reporter Worker names must be unique.");
+  }
+  if (!workerNames.every((name) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))) {
+    throw new Error("Worker names must use lowercase letters, numbers, and hyphens.");
+  }
+
+  const route = config.workers.workshop.route;
+  if (!route || Boolean(route.workersDev) === Boolean(route.customDomain)) {
+    throw new Error("Set exactly one Workshop route: workersDev or customDomain.");
+  }
+  if (route.workersDev !== undefined && route.workersDev !== true) {
+    throw new Error("Workshop workersDev must be boolean true when selected.");
+  }
+  if (route.customDomain !== undefined && typeof route.customDomain !== "string") {
+    throw new Error("Workshop customDomain must be a string.");
+  }
+  const hostnamePattern = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  if (route.customDomain && !hostnamePattern.test(route.customDomain)) {
+    throw new Error("Workshop customDomain must be a lowercase hostname.");
+  }
+
+  const issuer = new URL(config.access.issuer);
+  if (issuer.protocol !== "https:" ||
+      issuer.origin !== config.access.issuer.replace(/\/$/, "")) {
+    throw new Error("Cloudflare Access issuer must be an HTTPS origin only.");
+  }
+  if (!config.access.audience.trim() || config.access.audience !== config.access.audience.trim()) {
+    throw new Error("Cloudflare Access audience must not be blank or padded with whitespace.");
+  }
+  if (!Array.isArray(config.access.admins) ||
+      !config.access.admins.every((email) =>
+        typeof email === "string" && /^[^@\s]+@[^@\s]+$/.test(email))) {
+    throw new Error("Every Access administrator must be an email address.");
+  }
+
+  if (typeof config.aiGateway.enabled !== "boolean") {
+    throw new Error("AI Gateway enabled must be a boolean.");
+  }
+  if (config.aiGateway.enabled) {
+    const providers = new Set(["anthropic", "openai", "google", "cloudflare"]);
+    if (!Array.isArray(config.aiGateway.providers) ||
+        !config.aiGateway.providers.every((provider) => providers.has(provider))) {
+      throw new Error("AI Gateway providers must be anthropic, openai, google, or cloudflare.");
+    }
+    const workersAi = config.aiGateway.workersAi;
+    if (!(["direct", "gateway"].includes(workersAi.mode))) {
+      throw new Error("Workers AI mode must be direct or gateway.");
+    }
+    if (workersAi.mode === "gateway" &&
+        (typeof workersAi.gateway !== "string" || !workersAi.gateway.trim())) {
+      throw new Error("Workers AI gateway mode requires a gateway name string.");
+    }
+  }
+
+  if (typeof config.errorReporting.enabled !== "boolean") {
+    throw new Error("Error reporting enabled must be a boolean.");
+  }
+  const release = config.errorReporting.release;
+  if (release !== null &&
+      (typeof release !== "string" || !release.trim() || release !== release.trim())) {
+    throw new Error("Error reporting release must be null or a non-padded string.");
+  }
+
+  const artifactsConfig = config.context.artifacts;
+  if (artifactsConfig !== undefined &&
+      (artifactsConfig === null || typeof artifactsConfig !== "object" ||
+       Array.isArray(artifactsConfig))) {
+    throw new Error("Context Artifacts configuration must be an object when present.");
+  }
+  const artifactsEnabled = artifactsConfig?.enabled;
+  if (artifactsEnabled !== undefined && typeof artifactsEnabled !== "boolean") {
+    throw new Error("Context Artifacts enabled must be a boolean.");
+  }
+  const artifactsNamespace = artifactsConfig?.namespace;
+  if (artifactsNamespace !== undefined &&
+      (typeof artifactsNamespace !== "string" ||
+       !/^[a-z\d][a-z\d._-]*$/i.test(artifactsNamespace))) {
+    throw new Error("Context Artifacts namespace must be omitted or start with a letter or number and use only letters, numbers, dots, underscores, and hyphens.");
+  }
+
+  const sampling = config.observability.headSamplingRate;
+  if (typeof config.observability.enabled !== "boolean") {
+    throw new Error("Observability enabled must be a boolean.");
+  }
+  if (typeof sampling !== "number" || sampling < 0 || sampling > 1) {
+    throw new Error("Observability headSamplingRate must be between 0 and 1.");
+  }
+  if (typeof config.observability.logs.invocationLogs !== "boolean" ||
+      typeof config.observability.traces.enabled !== "boolean") {
+    throw new Error("Observability log and trace controls must be booleans.");
+  }
+  const traceSampling = config.observability.traces.headSamplingRate;
+  if (typeof traceSampling !== "number" || traceSampling < 0 || traceSampling > 1) {
+    throw new Error("Observability trace sampling must be between 0 and 1.");
+  }
+
+  const consoleConfig = config.agentIssueConsole;
+  if (typeof consoleConfig.dryRun !== "boolean") {
+    throw new Error("Agent Issue Console dryRun must be a boolean.");
+  }
+  if (!Array.isArray(consoleConfig.repositories) || !consoleConfig.repositories.length) {
+    throw new Error("Agent Issue Console requires at least one repository policy.");
+  }
+  const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+  if (!repositoryPattern.test(consoleConfig.defaultRepository) ||
+      !consoleConfig.repositories.some((policy) =>
+        policy.repository.toLowerCase() === consoleConfig.defaultRepository.toLowerCase())) {
+    throw new Error("Agent Issue Console default repository must be present in the allowlist.");
+  }
+  for (const policy of consoleConfig.repositories) {
+    if (!repositoryPattern.test(policy.repository) ||
+        !policy.validationLabel || !policy.queueLabel ||
+        typeof policy.autoQueueAfterCreate !== "boolean" ||
+        !policy.statusLabels ||
+        !["ready", "running", "needsInput", "failed", "done"].every((key) =>
+          typeof policy.statusLabels[key] === "string" && policy.statusLabels[key])) {
+      throw new Error(`Invalid Agent Issue Console repository policy: ${policy.repository ?? "unknown"}.`);
+    }
+    if (!Array.isArray(policy.previewHostnameAllowlist) ||
+        typeof policy.requireVisualEvidenceForUi !== "boolean") {
+      throw new Error(`Invalid preview policy for ${policy.repository}.`);
+    }
+    if (policy.previewUrl !== null && policy.previewUrl !== undefined) {
+      const preview = new URL(policy.previewUrl);
+      if (preview.protocol !== "https:" || preview.username || preview.password ||
+          !policy.previewHostnameAllowlist.includes(preview.hostname)) {
+        throw new Error(`Preview URL for ${policy.repository} must be HTTPS and hostname-allowlisted.`);
+      }
+    }
+  }
+  if (consoleConfig.llm.provider !== "opencode-go" ||
+      new URL(consoleConfig.llm.baseUrl).protocol !== "https:") {
+    throw new Error("Agent Issue Console LLM must use the configured OpenCode Go HTTPS boundary.");
+  }
+  for (const key of ["timeoutMs", "maxInvestigationSteps", "maxContextCharacters", "maxOutputCharacters", "maxOutputTokens"]) {
+    if (!Number.isInteger(consoleConfig.llm[key]) || consoleConfig.llm[key] <= 0) {
+      throw new Error(`Agent Issue Console LLM ${key} must be a positive integer.`);
+    }
+  }
+  if (!Number.isInteger(consoleConfig.llm.retries) || consoleConfig.llm.retries < 0 ||
+      !Number.isInteger(consoleConfig.browser.timeoutMs) || consoleConfig.browser.timeoutMs <= 0) {
+    throw new Error("Agent Issue Console retry and browser timeout values are invalid.");
+  }
+  return config;
+}
+
+function routeConfig(route) {
+  return route.workersDev
+    ? { workers_dev: true, routes: undefined }
+    : { workers_dev: false, routes: [{ pattern: route.customDomain, custom_domain: true }] };
+}
+
+function setCommon(config, deployment, name, route = { workersDev: false }) {
+  config.account_id = deployment.accountId;
+  config.name = name;
+  config.workers_dev = route.workersDev;
+  delete config.routes;
+  if (route.customDomain) Object.assign(config, routeConfig(route));
+  config.observability = {
+    ...config.observability,
+    enabled: deployment.observability.enabled,
+    head_sampling_rate: deployment.observability.headSamplingRate,
+    logs: {
+      ...config.observability?.logs,
+      invocation_logs: deployment.observability.logs.invocationLogs,
+    },
+    traces: {
+      ...config.observability?.traces,
+      enabled: deployment.observability.traces.enabled,
+      head_sampling_rate: deployment.observability.traces.headSamplingRate,
+    },
+  };
+}
+
+export function generateConfigs(config, bases) {
+  validateConfig(config);
+  const workshop = structuredClone(bases.workshop);
+  const context = structuredClone(bases.context);
+  const agentIssueCore = structuredClone(bases.agentIssueCore);
+  const customGatekeeper = structuredClone(bases.customGatekeeper);
+  const errorReporter = config.errorReporting.enabled
+    ? structuredClone(bases.errorReporter)
+    : undefined;
+
+  setCommon(workshop, config, config.workers.workshop.name, config.workers.workshop.route);
+  workshop.vars = {
+    ADMINS: config.access.admins,
+    CF_ACCESS_ISS: config.access.issuer.replace(/\/$/, ""),
+    CF_ACCESS_AUD: config.access.audience,
+  };
+  if (config.aiGateway.enabled) {
+    Object.assign(workshop.vars, {
+      CF_AI_GATEWAY: config.aiGateway.name,
+      CF_AI_GATEWAY_ACCOUNT_ID: config.aiGateway.accountId,
+      CF_AI_GATEWAY_PROVIDERS: config.aiGateway.providers.join(","),
+    });
+    workshop.secrets = {
+      ...workshop.secrets,
+      required: [...new Set([
+        ...(workshop.secrets?.required ?? []),
+        "CF_AI_GATEWAY_API_TOKEN",
+      ])],
+    };
+    if (config.aiGateway.workersAi.mode === "gateway") {
+      workshop.vars.CF_AI_GATEWAY_WAI = config.aiGateway.workersAi.gateway;
+    } else {
+      workshop.vars.CF_AI_GATEWAY_WAI_DIRECT = "true";
+    }
+  }
+  workshop.ai = { binding: "WORKERS_AI" };
+  workshop.services = [
+    ...(config.errorReporting.enabled ? [{
+      binding: "ERROR_REPORTER",
+      service: config.workers.errorReporter.name,
+      entrypoint: "ErrorReporter",
+      props: {
+        service: config.workers.workshop.name,
+        environment: config.errorReporting.environment,
+        ...(config.errorReporting.release ? { release: config.errorReporting.release } : {}),
+      },
+    }] : []),
+    {
+      binding: "GATEKEEPER_CONTEXT",
+      service: config.workers.context.name,
+      entrypoint: "GatekeeperVendor",
+      props: { sharingDomain: config.context.sharingDomain },
+    },
+    {
+      binding: "GATEKEEPER_CUSTOM",
+      service: config.workers.customGatekeeper.name,
+      entrypoint: "GatekeeperVendor",
+    },
+  ];
+  workshop.kv_namespaces = [
+    { binding: "BLUEPRINTS", ...(config.resources.blueprintsKvNamespaceId
+      ? { id: config.resources.blueprintsKvNamespaceId } : {}) },
+    { binding: "AVATARS", ...(config.resources.avatarsKvNamespaceId
+      ? { id: config.resources.avatarsKvNamespaceId } : {}) },
+  ];
+  workshop.r2_buckets = [
+    { binding: "BLUEPRINT_CONTENT", ...(config.resources.blueprintContentBucket
+      ? { bucket_name: config.resources.blueprintContentBucket } : {}) },
+  ];
+  workshop.assets = {
+    directory: "../workshop-frontend/dist",
+    not_found_handling: "single-page-application",
+    run_worker_first: ["/api", "/api/*", "/blueprint-screenshot/*"],
+  };
+
+  setCommon(context, config, config.workers.context.name);
+  context.kv_namespaces = [
+    { binding: "CONTEXT_COLLECTIONS", ...(config.context.kvNamespaceId
+      ? { id: config.context.kvNamespaceId } : {}) },
+  ];
+  if (config.context.artifacts?.enabled ?? false) {
+    context.artifacts = [{
+      binding: "ARTIFACTS",
+      namespace: config.context.artifacts?.namespace ?? defaultContextArtifactsNamespace,
+    }];
+  } else {
+    delete context.artifacts;
+  }
+
+  setCommon(customGatekeeper, config, config.workers.customGatekeeper.name);
+  customGatekeeper.vars = {
+    CUSTOM_NAME: config.customGatekeeper.name,
+    CUSTOM_MESSAGE: config.customGatekeeper.message,
+    AIC_DEFAULT_REPOSITORY: config.agentIssueConsole.defaultRepository,
+  };
+  customGatekeeper.services = [{
+    binding: "AIC_CORE",
+    service: config.workers.agentIssueCore.name,
+  }];
+
+  setCommon(agentIssueCore, config, config.workers.agentIssueCore.name);
+  agentIssueCore.vars = {
+    AIC_DEFAULT_REPOSITORY: config.agentIssueConsole.defaultRepository,
+    AIC_REPOSITORY_POLICIES: JSON.stringify(config.agentIssueConsole.repositories),
+    AIC_DRY_RUN: String(config.agentIssueConsole.dryRun),
+    AIC_LLM_PROVIDER: config.agentIssueConsole.llm.provider,
+    AIC_LLM_MODEL: config.agentIssueConsole.llm.model,
+    AIC_LLM_BASE_URL: config.agentIssueConsole.llm.baseUrl,
+    AIC_LLM_TIMEOUT_MS: String(config.agentIssueConsole.llm.timeoutMs),
+    AIC_LLM_RETRIES: String(config.agentIssueConsole.llm.retries),
+    AIC_MAX_INVESTIGATION_STEPS: String(config.agentIssueConsole.llm.maxInvestigationSteps),
+    AIC_MAX_CONTEXT_CHARACTERS: String(config.agentIssueConsole.llm.maxContextCharacters),
+    AIC_MAX_OUTPUT_CHARACTERS: String(config.agentIssueConsole.llm.maxOutputCharacters),
+    AIC_MAX_OUTPUT_TOKENS: String(config.agentIssueConsole.llm.maxOutputTokens),
+    AIC_BROWSER_TIMEOUT_MS: String(config.agentIssueConsole.browser.timeoutMs),
+  };
+
+  if (errorReporter) {
+    setCommon(errorReporter, config, config.workers.errorReporter.name);
+  }
+
+  return { workshop, context, agentIssueCore, customGatekeeper, ...(errorReporter && { errorReporter }) };
+}
+
+async function readJsonc(path) {
+  const errors = [];
+  const result = parse(await readFile(path, "utf8"), errors);
+  if (errors.length) {
+    const where = relative(root, path) || path;
+    throw new Error(`${where}: ${printParseErrorCode(errors[0].error)} at offset ${errors[0].offset}`);
+  }
+  return result;
+}
+
+// Every validateConfig message names a config path, so say which file those paths live in.
+async function readDeployment(path) {
+  const config = await readJsonc(path);
+  try {
+    return validateConfig(config);
+  } catch (error) {
+    throw new Error(`${relative(root, path)}: ${error.message}`);
+  }
+}
+
+function run(args, cwd = root, env = process.env) {
+  const result = spawnSync("pnpm", args, { cwd, env, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const where = relative(root, cwd) || ".";
+    throw new Error(`${where}: pnpm ${args.join(" ")} failed. Its output is above.`);
+  }
+}
+
+function runCommand(command, args, cwd = root, env = process.env) {
+  const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const where = relative(root, cwd) || ".";
+    throw new Error(`${where}: ${command} ${args.join(" ")} failed. Its output is above.`);
+  }
+}
+
+function requireSubmodule() {
+  if (!existsSync(join(root, "cloudflare-os/package.json"))) {
+    throw new Error("CloudflareOS submodule is not initialized. Run git submodule update --init.");
+  }
+}
+
+function build(config) {
+  run(["--dir", "cloudflare-os", "--filter", "@gadgets/gatekeeper-context", "build"]);
+  runCommand("cargo", ["test", "--locked"], join(root, "packages/agent-issue-core"));
+  runCommand("cargo", ["clippy", "--all-targets", "--locked", "--", "-D", "warnings"], join(root, "packages/agent-issue-core"));
+  runCommand("cargo", ["fmt", "--check"], join(root, "packages/agent-issue-core"));
+  runCommand("worker-build", ["--release", "--no-panic-recovery"], join(root, "packages/agent-issue-core"));
+  run(["--dir", "packages/custom-gatekeeper", "run", "build"]);
+  if (config.errorReporting.enabled) {
+    run(["--dir", "packages/error-reporter", "run", "build"]);
+  }
+  run(["--dir", "cloudflare-os", "--filter", "@gadgets/workshop-frontend", "build"], root, {
+    ...process.env,
+    VITE_CF_ACCESS_MODE: "true",
+  });
+  run(["--dir", "cloudflare-os", "--filter", "@gadgets/workshop-backend", "build"]);
+}
+
+async function main() {
+  requireSubmodule();
+  const configFlag = process.argv.indexOf("--config");
+  const configName = configFlag >= 0 ? process.argv[configFlag + 1] : "deployment.jsonc";
+  if (!configName || configName.includes("..") || resolve(root, configName) !== join(root, configName)) {
+    throw new Error("--config must name a file in the repository root.");
+  }
+  const config = await readDeployment(join(root, configName));
+  const generated = generateConfigs(config, {
+    workshop: await readJsonc(join(root, "cloudflare-os/packages/workshop-backend/wrangler.jsonc")),
+    context: await readJsonc(join(root, "cloudflare-os/packages/gatekeeper-context/wrangler.jsonc")),
+    agentIssueCore: await readJsonc(join(root, "packages/agent-issue-core/wrangler.jsonc")),
+    customGatekeeper: await readJsonc(join(root, "packages/custom-gatekeeper/wrangler.jsonc")),
+    errorReporter: await readJsonc(join(root, "packages/error-reporter/wrangler.jsonc")),
+  });
+
+  try {
+    for (const [name, generatedConfig] of Object.entries(generated)) {
+      await writeFile(generatedPaths[name], JSON.stringify(generatedConfig, null, 2) + "\n");
+    }
+    const check = process.argv.includes("--check");
+    if (check) run(["test"]);
+    build(config);
+    const deployArgs = check ? ["--dry-run"] : [];
+    if (config.errorReporting.enabled) {
+      run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
+        join(root, "packages/error-reporter"));
+    }
+    run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
+      join(root, "cloudflare-os/packages/gatekeeper-context"));
+    run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
+      join(root, "packages/agent-issue-core"));
+    run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
+      join(root, "packages/custom-gatekeeper"));
+    run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
+      join(root, "cloudflare-os/packages/workshop-backend"));
+  } finally {
+    await Promise.all(Object.values(generatedPaths).map((path) => rm(path, { force: true })));
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    await main();
+  } catch (error) {
+    // One line, no stack: every failure here is a config or subprocess problem, not a script bug.
+    console.error(`\nDeploy failed. ${error.message}`);
+    process.exitCode = 1;
+  }
+}
