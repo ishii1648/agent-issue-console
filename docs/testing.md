@@ -1,33 +1,33 @@
-# Testing strategy
+# テスト戦略
 
-## Layers
+## 層
 
-- Unit: normalization/fingerprint, state transitions, question policy, allowlists, URL/SSRF checks,
-  redaction, Issue rendering, monitor classification, and retry decisions.
-- Contract: fake and HTTP adapters run against the same typed port expectations, including pagination,
-  errors, rate limits, and write reconciliation.
-- Integration: a fake GitHub/LLM/browser vertical slice persists intake state, asks at most once,
-  creates or suppresses an Issue, and refreshes Monitor.
-- UI: responsive layout, form/keyboard behavior, evidence disclosure, state/result rendering, and
-  accessible labels at desktop and mobile viewports.
-- Deployment: root `pnpm check` builds the wrapper and performs Wrangler dry-runs without credentials.
+- Rust unit/integration: fingerprint、state、質問、allowlist、SSRF、redaction、Issue body、Monitor、write照合。
+- adapter contract: typed port と fake が repository/Issue/PR/commit/write の同じ契約を満たすこと。
+- bridge: owner capability が private HTTP binding にだけ転送されることと agent read authorization。
+- UI: chat、responsive layout、evidence disclosure、keyboard/accessibility、loading/error。
+- deployment: root `pnpm check` が5 Workerを build し Wrangler dry-run すること。
 
-## Required scenario matrix
+## 自動化済みシナリオ
 
-Automated domain/integration tests cover: valid backend request; no needless question; material
-decision; resume after answer; duplicate Issue; open PR; merged/implemented; replay idempotency;
-create-timeout reconciliation; UI evidence success; missing UI evidence question; repository/URL
-allowlists; localhost/private/link-local/metadata rejection; prompt injection treated as data; secret
-redaction; missing write authority; dry-run; all five monitor states; PR/check display; and created
-Issue evidence.
+妥当な要求の自動作成、不要な質問なし、重大判断の質問と保存状態からの再開、duplicate、open PR、merged PR、
+fingerprint 冪等性、create timeout 照合、UI証拠、UI観測不足時だけの質問、repository/URL/SSRF allowlist、
+prompt injection をdataとして扱うこと、secret除去、write権限不足、dry-run、5種のMonitor状態、関連PR/check、
+Agent Issue Console metadata を Rust test で検証します。deployment generator、TypeScript bridge、Error Reporter は
+それぞれの regression test を持ちます。
 
-Real-service behavior is captured in `docs/runbooks/real-environment-e2e.md` because credentials,
-billing, Access policy, and deployment identity are human-controlled. Never run that playbook against
-a production repository first; use a dedicated allowlisted test repository and preview environment.
+## Quality gate
 
-## Quality gates
+```sh
+cargo test --manifest-path packages/agent-issue-core/Cargo.toml --locked
+cargo fmt --manifest-path packages/agent-issue-core/Cargo.toml --check
+cargo clippy --manifest-path packages/agent-issue-core/Cargo.toml --all-targets --locked -- -D warnings
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm check
+git diff --check
+```
 
-Run `pnpm test`, `pnpm --dir packages/custom-gatekeeper run types:check`, `pnpm check`, and verify no
-generated `wrangler.prod.jsonc`, secrets, or submodule modifications remain. Local UI QA captures
-desktop/mobile screenshots and checks browser console errors.
-
+credential、billing、Access policy、公開 route を伴う確認は自動実行せず、専用 test repository で
+`docs/runbooks/real-environment-e2e.md` を実施します。

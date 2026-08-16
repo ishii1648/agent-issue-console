@@ -1,68 +1,40 @@
-# Product specification
+# プロダクト仕様
 
 ## Repository policy
 
-Each policy contains `repository`, validation and queue labels, five status-label mappings,
-`autoQueueAfterCreate`, optional preview URL, allowed preview hostnames,
-`requireVisualEvidenceForUi`, and dry-run. Policy is validated before adapters receive arguments.
+policy は `repository`、validation/queue label、5種の status label、`autoQueueAfterCreate`、preview URL、
+preview hostname allowlist、UI証拠必須 flag、dry-run を持ち、adapter 呼出前に検証します。
 
-## Intake state and transitions
+## Intake と判定
 
-`understanding → investigating → validating` is the normal path. Validation may transition to
-`needs_input`, a terminal `resolved_without_issue`, or `creating_issue → completed`. Adapter or
-policy failures transition to `failed`, except insufficient read/write authority which yields the
-terminal `blocked` disposition. An answer transitions `needs_input → investigating` while retaining
-the prior evidence and investigation cursor.
-
-Terminal results contain disposition, summary, evidence IDs, repository/default SHA, fingerprint,
-and optional Issue reference. Transitions and external calls append sanitized audit events.
-
-## Validation gates
-
-Creation requires all ten gates from the product brief: known and allowlisted repository; repository
-scope; no Issue/PR/implementation duplicate; observed current behavior; clear external expectation;
-testable completion criteria; no major decision; recorded default SHA; and safe evidence. Immediately
-before write, search open/closed Issues and open/closed/merged PRs again, including fingerprint.
+terminal result は disposition、summary、repository、default SHA、evidence、fingerprint、任意の Issue reference
+を返します。LLM が質問できるのは回答前の一度だけで、回答後も決まらない場合は `blocked` です。Issue 作成
+直前に Issue、PR、fingerprint を再検索します。
 
 ## Fingerprint
 
-Normalize Unicode with NFKC, lowercase, trim, collapse whitespace, and remove inconsequential final
-punctuation. Hash `v1\n<owner/repo>\n<normalized request>\n<sorted stable identifiers>` with SHA-256.
-Embed `<!-- agent-issue-console:fingerprint=<hex> -->`. A matching Issue is authoritative regardless
-of open/closed state.
+全角 ASCII/space を互換文字へ寄せ、小文字化、trim、連続空白の縮約、末尾の軽微な句読点除去を行います。
+`v1\n<owner/repo>\n<normalized request>\n<sorted identifiers>` を SHA-256 で hash し、非表示 metadata
+として本文に埋めます。open/closed を問わず一致を優先します。
 
-## Issue body
+## Issue本文
 
-The body contains 問題, 現在の動作, 調査結果, 期待する動作, 完了条件, 非ゴール, and Agent Issue
-Console metadata. It describes observable behavior, not mandated implementation. The metadata records
-default SHA and fingerprint. All fields pass secret and control-character redaction before writing.
+「問題」「現在の動作」「調査結果」「期待する動作」「完了条件」「非ゴール」「Agent Issue Console metadata」
+で構成し、default SHA、主要証拠、fingerprint を記録します。内部実装を完了条件に固定しません。
 
-## GitHub boundary
+## GitHub境界
 
-Typed reads cover repository metadata/default SHA/tree/file/code search; Issues and comments; PRs,
-diffs, reviews/discussion/checks; commits and diffs. Typed writes are only `createIssue` and
-`addAllowedLabels`. Every method accepts a validated `RepositoryRef`, timeout, and abort signal.
+typed read は repository/default SHA/tree/file/code、Issue/comment、PR/diff/review/check、commit/diff を扱います。
+write は Issue 作成と policy 許可済み label 追加だけです。各 fetch は timeout signal を使い、read を限定 retry
+します。Issue create エラーは再送前に fingerprint で照合します。
 
-GitHub text is wrapped as untrusted evidence. Agent instructions state that embedded requests to
-change policy, reveal credentials, or invoke tools are data to report, never commands.
+## Monitor と UI証拠
 
-## Monitor
+status 優先度は failed、needs-input、running、ready、done で、validation label だけなら `unqueued` です。
+UI は HTTPS と exact hostname allowlist を要求し、URL credential、localhost、private/link-local/reserved IP、
+metadata host を拒否します。390×844 で capture し、`allowRequestPattern` で同一 hostname の request だけを許可します。
 
-Summary counts use the configured status labels with deterministic priority:
-failed, needs-input, running, ready, done. Unlabelled validated Issues are shown as `unqueued` but do
-not inflate queue counts. Details include Issue identity, state, labels, timestamps, related PRs,
-draft/check summary, recent material comments, extracted pending question, and parsed metadata.
+## Error処理
 
-## UI evidence
-
-Validate HTTPS only, reject credentials in URLs, localhost, `.local`, link-local, private/reserved IP
-literals, metadata hosts, and hosts outside the exact/suffix allowlist. Revalidate redirect targets.
-Capture a 390×844 mobile viewport by default plus title, main text/accessibility tree, final URL,
-environment, UTC timestamp, and screenshot. Redact evidence before persistence.
-
-## Error handling
-
-Reads retry 429/502/503/504 with bounded exponential backoff and `Retry-After`. Writes are not blindly
-retried: after timeout or 5xx, search by fingerprint; only retry creation when absence is established.
-Errors shown to users are sanitized and include a stable audit correlation ID.
-
+利用者向け error は redaction します。dry-run は full validation 後に write せず終了します。期待動作・完了条件
+不足は `not_substantiated`、write 権限不足は `blocked` です。

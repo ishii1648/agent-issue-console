@@ -1,21 +1,20 @@
-# ADR 0001: Keep product logic in a wrapper-owned Gatekeeper
+# ADR 0001: wrapper所有のGatekeeperへプロダクトを拡張する
 
-- Status: accepted
-- Date: 2026-08-16
+- 状態: superseded by ADR 0005
+- 日付: 2026-08-16
 
-## Context
+## 背景
 
-Agent Issue Console needs GitHub reads and narrowly constrained writes, persistent conversation state,
-an LLM, browser evidence, and a Monitor Gadget. The starter intentionally exposes custom Gatekeepers,
-service bindings, runtime agent instructions, and Blueprints while pinning Cloudflare OS upstream.
+Cloudflare OS starter は custom Gatekeeper、service binding、agent instructions、Blueprint という拡張境界を
+提供し、upstream 本体を submodule として固定します。Agent Issue Console は GitHub の限定 read/write、永続
+会話、LLM、browser evidence、Monitor を必要とします。
 
-## Decision
+## 当初の決定
 
-Implement policy and integrations in the wrapper-owned custom Gatekeeper. Use the standard Workshop
-chat capability and the Gatekeeper App UI for intake and Monitor. Do not modify the submodule.
+policy と integration を wrapper 所有の Custom Gatekeeper に置き、Workshop chat capability と Gatekeeper
+App UI を使い、submodule は変更しないことにしました。
 
-## Consequences
+## 変更
 
-Upstream updates remain a gitlink change, and capability enforcement cannot be bypassed by prompts.
-The deployment must configure the product Gatekeeper and install/feature the Monitor blueprint. A
-fully bespoke top-level navigation item would require upstream frontend work and is deferred.
+upstream を変更しない決定は維持しますが、supply-chain risk を減らすため業務ロジックは Rust core Worker
+へ移しました。Custom Gatekeeper は Cloudflare OS 互換 bridge のみです。現行決定は ADR 0005 を参照します。

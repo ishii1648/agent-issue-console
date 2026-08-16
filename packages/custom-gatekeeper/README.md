@@ -1,27 +1,17 @@
-# Agent Issue Console Gatekeeper
+# Agent Issue Console Custom Gatekeeper
 
-This wrapper-owned Cloudflare OS Gatekeeper hosts the Agent Issue Console capability and management UI. The domain implementation enforces repository and URL policy, builds idempotent validated Issues, and derives monitor state from GitHub.
+Cloudflare OS の `WorkerEntrypoint`、Cap'n Web、App UI と Rust core を接続する最小 TypeScript bridge です。
+業務ロジック、GitHub/LLM/Browser credential、intake state は保持しません。
 
-## Configuration
-
-Non-secret repository policies belong in deployment configuration. Credentials are Wrangler secrets:
-
-- `GITHUB_TOKEN`: preferably a repository-scoped GitHub App installation token.
-- `OPENCODE_GO_API_KEY`: OpenCode Go API key.
-- `CLOUDFLARE_BROWSER_TOKEN`: only for the Browser Rendering REST adapter.
-
-Never place their values in Git, configuration, logs, Issue bodies, or screenshots.
-
-## Observer policy
-
-The MVP management app is private to the connected account. Repository evidence must not be shared until an observer verifier can prove the collaborator's access to the same repository; production sharing therefore fails closed.
-
-A real integration must decide which observers may retain data and implement verification at that data boundary. Use upstream's [`write-gatekeeper` skill](https://github.com/cloudflare/cloudflare-os/blob/main/.agents/skills/write-gatekeeper/SKILL.md) for observer design, OAuth, URL-scoped resources, writes and simulation, hooks, and configurator UI.
-
-## Check
+agent-facing `CustomSession` は保存済み intake と Monitor summary の read-only capability です。Create と回答は
+認証済み App UI capability から、private `AIC_CORE` Service Binding を通して実行します。bridge は account ID を
+owner capability header として付与し、Rust Durable Object の user state を分離します。
 
 ```sh
-pnpm test
-pnpm run types:check
-pnpm exec wrangler deploy --dry-run
+pnpm --filter custom-gatekeeper test
+pnpm --filter custom-gatekeeper types:check
+pnpm --filter custom-gatekeeper build
 ```
+
+generic outbound API、credential forwarding、GitHub write をこの package に追加しないでください。Cloudflare OS
+契約変更へ追随する場合も、domain は Rust 側に保ちます。

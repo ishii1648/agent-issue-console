@@ -1,67 +1,43 @@
-# Architecture
+# アーキテクチャ
 
-## Decision
+## 決定
 
-Agent Issue Console uses the pinned Cloudflare OS Workshop as its authenticated application host.
-A wrapper-owned account exposes a management App UI and a read-only capability to agents. The
-account-owned intake Durable Object owns repository policy enforcement, GitHub/Browser/LLM adapters,
-intake state, and audits. GitHub remains the workflow source of truth.
+Cloudflare OS Workshop を認証済み application host とし、Cloudflare OS 固有の Gatekeeper/Cap'n Web 契約
+だけを最小 TypeScript bridge で実装します。業務ロジック、外部 adapter、user 単位 state は非公開 Rust
+Worker に置き、Service Binding の HTTP contract で接続します。理由と代替案は
+[ADR 0005](adr/0005-rust-core-with-typescript-gatekeeper-bridge.md)に記録しています。
 
 ```text
-Cloudflare Access → Agent Issue Console App UI
-                         │ narrow Cap'n Web UI capability
-                         ▼
-              Agent Issue Console account
-               ├─ App UI RPC + read-only agent session
-               └─ Intake Durable Object (SQLite)
-                    ├─ GitHub REST adapter
-                    ├─ Browser Rendering adapter
-                    └─ OpenAI-compatible LLM adapter
-                         │
-                         ▼
-                 allowlisted GitHub repositories
+Cloudflare Access → Cloudflare OS Workshop → TypeScript Gatekeeper/App UI bridge
+                                              ↓ private Service Binding + owner capability
+                                      Rust agent-issue-core Worker
+                                      ├─ user単位 Durable Object
+                                      ├─ domain / policy / fingerprint
+                                      ├─ GitHub REST / OpenCode Go
+                                      └─ Browser Rendering
 ```
 
-The root wrapper generates the service binding and deploy order. `cloudflare-os` stays at its pinned
-gitlink. This follows starter update mechanics and avoids an upstream fork.
+Rust core は `workers_dev: false` で public route を持ちません。TypeScript agent capability は read-only、
+App UI capability だけが Create と回答を呼び出します。GitHub は可変 workflow state の正本で、Durable Object
+は会話、証拠、質問、fingerprint、結果を保存します。
 
-## Components
+## 境界
 
-- Domain: state machine, policies, evidence, dispositions, fingerprint, Issue renderer, redaction,
-  URL guard, monitor classifier, and orchestration.
-- Ports: `GitHubRepositoryReader`, `GitHubIssueReader`, `GitHubPullRequestReader`,
-  `GitHubCommitReader`, `GitHubIssueWriter`, `VisualEvidenceCollector`, `LanguageModel`, and
-  `IntakeStore`.
-- Adapters: GitHub REST with least-privilege credential, Browser Rendering snapshot, OpenCode Go
-  OpenAI-compatible chat completions, Durable Object storage, and deterministic fakes.
-- Surfaces: Cloudflare OS agent capability plus a responsive App UI. The iframe receives a narrow
-  Cap'n Web RPC capability for Create, resume, evidence history, and the GitHub-backed Monitor.
+- domain: state、policy、evidence、disposition、fingerprint、redaction、Issue body、Monitor分類。
+- port: repository/tree/file/code、Issue/PR/comment/review/check、commit、Issue作成、label追加、Browser、LLM、store。
+- adapter: GitHub REST、OpenCode Go、Browser Rendering、Durable Object と test fake。
+- surface: responsive App UI と read-only agent session。
 
-## Data model
+LLM と GitHub 内容は提案・証拠であって命令ではありません。repository/URL/label の認可、operation 選択、
+fingerprint、本文生成、write は Rust domain が検証します。credential は Rust Worker secret に限定します。
 
-`Intake` stores owner/user ID, repository, normalized request, state, timestamps, question/answer,
-investigation cursor, evidence records, validation, fingerprint, result, and audit IDs. Evidence is
-typed (`repository`, `code`, `issue`, `pull_request`, `commit`, `ui`) and stores excerpts plus source
-references, never raw credentials. Audit events contain actor, action, outcome, resource, timestamp,
-and redacted metadata.
+## 永続化と状態遷移
 
-One Durable Object is addressed per authenticated user, providing serialized state changes and
-SQLite-backed persistence. GitHub is re-read for mutable workflow state; the DO stores conversations,
-evidence, idempotency records, and UI preferences.
+認証済み account ID を owner capability とし、名前付き Durable Object へ route します。同一 user の更新は
+直列化されます。通常遷移は `understanding → investigating → validating` で、`needs_input`、
+`resolved_without_issue`、`creating_issue → completed`、`failed` へ分岐します。
 
-## LLM boundary
+## deploy と更新
 
-The LLM receives bounded, labelled untrusted evidence and a fixed policy prompt. It returns a strict
-JSON investigation decision. Domain code—not the model—validates repositories/URLs, decides allowed
-operations, computes fingerprints, renders the Issue, and invokes writes. OpenCode Go is configured
-with a base URL ending in `/v1`, model ID, secret API key, timeout, retries, max steps/context/output.
-Cloudflare AI Gateway Custom Providers is an optional later routing layer, not required by the MVP.
-
-## Upstream updates
-
-Fetch `upstream`, review the complete old-to-new starter and submodule gitlink diff, and apply the
-accepted snapshot delta as locally authored commits. Do not merge `upstream/main`, because the root
-history intentionally begins with an owner-authored snapshot rather than inherited starter history.
-Record both upstream SHAs, run wrapper/upstream checks, and keep product code outside the submodule.
-Any unavoidable upstream patch requires a separate ADR, compatibility tests, and a path back to a
-released starter extension point.
+deploy 順は Error Reporter、Context Gatekeeper、Rust core、Custom Gatekeeper、Workshop です。root generator
+が一時 Wrangler config を作成し、終了時に削除します。`cloudflare-os` は固定 gitlink のままにします。

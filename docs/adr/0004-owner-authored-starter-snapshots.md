@@ -1,25 +1,22 @@
-# ADR 0004: Import starter snapshots without inherited root history
+# ADR 0004: starterをowner自身のsnapshot commitとして取り込む
 
-- Status: accepted
-- Date: 2026-08-16
+- 状態: accepted
+- 日付: 2026-08-16
 
-## Context
+## 背景
 
-The product uses `cloudflare/cloudflare-os-starter`, but the Agent Issue Console repository should
-show only locally authored root commits. Merging or branching directly from `upstream/main` preserves
-the upstream authors in this repository's reachable history and contributor display.
+Agent Issue Console は `cloudflare/cloudflare-os-starter` を使いますが、root repository の reachable history と
+contributor 表示には locally authored commit だけを残します。`upstream/main` から branch/merge すると upstream
+author の履歴を引き継ぎます。
 
-## Decision
+## 決定
 
-Initialize the root with an owner-authored, parentless commit whose tree exactly matches
-`cloudflare/cloudflare-os-starter@93f14dfd68ed1c218d2a7c2168753a6d9b22e145`. Record that SHA and the
-`cloudflare-os` gitlink SHA in commit trailers. Keep the `upstream` remote for discovery, but never
-merge its history. Future upgrades review the complete snapshot diff and apply the accepted delta as
-locally authored commits with old/new upstream provenance.
+`cloudflare/cloudflare-os-starter@93f14dfd68ed1c218d2a7c2168753a6d9b22e145` と同じ tree を持つ、owner
+authored かつ parentless な root commit で初期化します。starter SHA と `cloudflare-os` gitlink SHA を trailer に
+記録します。`upstream` remote は更新発見用に保持しますが履歴を merge しません。将来更新は snapshot 全差分を
+reviewし、受け入れた tree delta を old/new provenance 付きの local commit として適用します。
 
-## Consequences
+## 結果
 
-GitHub displays only Agent Issue Console authors in reachable root history. Ordinary upstream merges
-and ancestry-based rebases are unavailable; update tooling and reviewers must compare explicit SHAs.
-The pinned submodule retains its own upstream history, which is expected and separate from the root
-repository's commit graph.
+root history は Agent Issue Console author だけを表示します。通常の upstream merge/rebase は使えないため、tool と
+reviewer は明示 SHA 間を比較します。submodule 自身の upstream history は root graph と分離されており維持します。
