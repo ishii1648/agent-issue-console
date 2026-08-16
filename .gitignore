@@ -5,4 +5,5 @@ packages/*/dist-app/
 packages/*/dist-app-js/
 packages/*/.wrangler/
 packages/*/wrangler.prod.jsonc
+packages/*/target/
 deployment.local.jsonc

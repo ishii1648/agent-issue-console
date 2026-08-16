@@ -15,6 +15,7 @@
       "route": { "customDomain": "os.example.com" }
     },
     "context": { "name": "<CONTEXT_WORKER_NAME>" },
+    "agentIssueCore": { "name": "<AGENT_ISSUE_CORE_WORKER_NAME>" },
     "customGatekeeper": { "name": "<CUSTOM_GATEKEEPER_WORKER_NAME>" },
     "errorReporter": { "name": "<ERROR_REPORTER_WORKER_NAME>" }
   },

@@ -1,11 +1,5 @@
 export * from "./custom.js";
-export * from "./domain.js";
-export * from "./durable-store.js";
-export * from "./fingerprint.js";
-export * from "./issue-body.js";
-export * from "./monitor.js";
-export * from "./security.js";
-export * from "./workflow.js";
+export * from "./core-client.js";
 
 export default {
   async fetch(request: Request): Promise<Response> {

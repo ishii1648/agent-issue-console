@@ -1,0 +1,39 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "agent-issue-console-core",
+  "main": "build/worker/shim.mjs",
+  "build": {
+    "command": "worker-build --release --no-panic-recovery",
+    "watch_dir": "src"
+  },
+  "compatibility_date": "2026-08-04",
+  "workers_dev": false,
+  "durable_objects": {
+    "bindings": [
+      { "name": "AIC_STATE", "class_name": "AgentIssueState" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AgentIssueState"] }
+  ],
+  "vars": {
+    "AIC_DEFAULT_REPOSITORY": "ishii1648/agent-issue-console",
+    "AIC_REPOSITORY_POLICIES": "[]",
+    "AIC_DRY_RUN": "true",
+    "AIC_LLM_PROVIDER": "opencode-go",
+    "AIC_LLM_MODEL": "gpt-5.6-luna",
+    "AIC_LLM_BASE_URL": "https://opencode.ai/zen/go/v1",
+    "AIC_LLM_TIMEOUT_MS": "45000",
+    "AIC_LLM_RETRIES": "2",
+    "AIC_MAX_INVESTIGATION_STEPS": "20",
+    "AIC_MAX_CONTEXT_CHARACTERS": "60000",
+    "AIC_MAX_OUTPUT_CHARACTERS": "8000",
+    "AIC_MAX_OUTPUT_TOKENS": "4000",
+    "AIC_BROWSER_TIMEOUT_MS": "30000"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "invocation_logs": false }
+  }
+}

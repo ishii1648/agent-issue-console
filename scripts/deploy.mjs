@@ -11,6 +11,7 @@ const generatedName = "wrangler.prod.jsonc";
 const generatedPaths = {
   workshop: join(root, "cloudflare-os/packages/workshop-backend", generatedName),
   context: join(root, "cloudflare-os/packages/gatekeeper-context", generatedName),
+  agentIssueCore: join(root, "packages/agent-issue-core", generatedName),
   customGatekeeper: join(root, "packages/custom-gatekeeper", generatedName),
   errorReporter: join(root, "packages/error-reporter", generatedName),
 };
@@ -20,6 +21,7 @@ const requiredPaths = [
   "accountId",
   "workers.workshop.name",
   "workers.context.name",
+  "workers.agentIssueCore.name",
   "workers.customGatekeeper.name",
   "access.issuer",
   "access.audience",
@@ -144,7 +146,7 @@ export function validateConfig(config) {
     .filter(([key]) => key !== "errorReporter" || config.errorReporting.enabled)
     .map(([, worker]) => worker.name);
   if (new Set(workerNames).size !== workerNames.length) {
-    throw new Error("Workshop, Context, and custom Gatekeeper Worker names must be unique.");
+    throw new Error("Workshop, Context, Rust core, custom Gatekeeper, and Error Reporter Worker names must be unique.");
   }
   if (!workerNames.every((name) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name))) {
     throw new Error("Worker names must use lowercase letters, numbers, and hyphens.");
@@ -322,6 +324,7 @@ export function generateConfigs(config, bases) {
   validateConfig(config);
   const workshop = structuredClone(bases.workshop);
   const context = structuredClone(bases.context);
+  const agentIssueCore = structuredClone(bases.agentIssueCore);
   const customGatekeeper = structuredClone(bases.customGatekeeper);
   const errorReporter = config.errorReporting.enabled
     ? structuredClone(bases.errorReporter)
@@ -411,6 +414,15 @@ export function generateConfigs(config, bases) {
     CUSTOM_NAME: config.customGatekeeper.name,
     CUSTOM_MESSAGE: config.customGatekeeper.message,
     AIC_DEFAULT_REPOSITORY: config.agentIssueConsole.defaultRepository,
+  };
+  customGatekeeper.services = [{
+    binding: "AIC_CORE",
+    service: config.workers.agentIssueCore.name,
+  }];
+
+  setCommon(agentIssueCore, config, config.workers.agentIssueCore.name);
+  agentIssueCore.vars = {
+    AIC_DEFAULT_REPOSITORY: config.agentIssueConsole.defaultRepository,
     AIC_REPOSITORY_POLICIES: JSON.stringify(config.agentIssueConsole.repositories),
     AIC_DRY_RUN: String(config.agentIssueConsole.dryRun),
     AIC_LLM_PROVIDER: config.agentIssueConsole.llm.provider,
@@ -429,7 +441,7 @@ export function generateConfigs(config, bases) {
     setCommon(errorReporter, config, config.workers.errorReporter.name);
   }
 
-  return { workshop, context, customGatekeeper, ...(errorReporter && { errorReporter }) };
+  return { workshop, context, agentIssueCore, customGatekeeper, ...(errorReporter && { errorReporter }) };
 }
 
 async function readJsonc(path) {
@@ -461,6 +473,15 @@ function run(args, cwd = root, env = process.env) {
   }
 }
 
+function runCommand(command, args, cwd = root, env = process.env) {
+  const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const where = relative(root, cwd) || ".";
+    throw new Error(`${where}: ${command} ${args.join(" ")} failed. Its output is above.`);
+  }
+}
+
 function requireSubmodule() {
   if (!existsSync(join(root, "cloudflare-os/package.json"))) {
     throw new Error("CloudflareOS submodule is not initialized. Run git submodule update --init.");
@@ -469,6 +490,10 @@ function requireSubmodule() {
 
 function build(config) {
   run(["--dir", "cloudflare-os", "--filter", "@gadgets/gatekeeper-context", "build"]);
+  runCommand("cargo", ["test", "--locked"], join(root, "packages/agent-issue-core"));
+  runCommand("cargo", ["clippy", "--all-targets", "--locked", "--", "-D", "warnings"], join(root, "packages/agent-issue-core"));
+  runCommand("cargo", ["fmt", "--check"], join(root, "packages/agent-issue-core"));
+  runCommand("worker-build", ["--release", "--no-panic-recovery"], join(root, "packages/agent-issue-core"));
   run(["--dir", "packages/custom-gatekeeper", "run", "build"]);
   if (config.errorReporting.enabled) {
     run(["--dir", "packages/error-reporter", "run", "build"]);
@@ -491,6 +516,7 @@ async function main() {
   const generated = generateConfigs(config, {
     workshop: await readJsonc(join(root, "cloudflare-os/packages/workshop-backend/wrangler.jsonc")),
     context: await readJsonc(join(root, "cloudflare-os/packages/gatekeeper-context/wrangler.jsonc")),
+    agentIssueCore: await readJsonc(join(root, "packages/agent-issue-core/wrangler.jsonc")),
     customGatekeeper: await readJsonc(join(root, "packages/custom-gatekeeper/wrangler.jsonc")),
     errorReporter: await readJsonc(join(root, "packages/error-reporter/wrangler.jsonc")),
   });
@@ -509,6 +535,8 @@ async function main() {
     }
     run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
       join(root, "cloudflare-os/packages/gatekeeper-context"));
+    run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
+      join(root, "packages/agent-issue-core"));
     run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],
       join(root, "packages/custom-gatekeeper"));
     run(["exec", "wrangler", "deploy", "--config", generatedName, ...deployArgs],

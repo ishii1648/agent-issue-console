@@ -9,6 +9,7 @@ const validConfig = {
   workers: {
     workshop: { name: "acme-cloudflare-os", route: { customDomain: "os.example.com" } },
     context: { name: "acme-cloudflare-os-context" },
+    agentIssueCore: { name: "acme-agent-issue-core" },
     customGatekeeper: { name: "acme-cloudflare-os-custom" },
     errorReporter: { name: "acme-cloudflare-os-errors" },
   },
@@ -80,6 +81,7 @@ async function baseConfigs() {
   return {
     workshop: await baseConfig("../cloudflare-os/packages/workshop-backend/wrangler.jsonc"),
     context: await baseConfig("../cloudflare-os/packages/gatekeeper-context/wrangler.jsonc"),
+    agentIssueCore: await baseConfig("../packages/agent-issue-core/wrangler.jsonc"),
     customGatekeeper: await baseConfig("../packages/custom-gatekeeper/wrangler.jsonc"),
     errorReporter: {
       name: "error-reporter",
@@ -209,6 +211,14 @@ test("generates Access-mode Workshop, Context, and custom Gatekeeper configs", a
   assert.deepEqual(generated.customGatekeeper.vars, {
     CUSTOM_NAME: "Acme",
     CUSTOM_MESSAGE: "Use the company handbook.",
+    AIC_DEFAULT_REPOSITORY: "acme/app",
+  });
+  assert.deepEqual(generated.customGatekeeper.services, [{
+    binding: "AIC_CORE",
+    service: "acme-agent-issue-core",
+  }]);
+  assert.equal(generated.agentIssueCore.name, "acme-agent-issue-core");
+  assert.deepEqual(generated.agentIssueCore.vars, {
     AIC_DEFAULT_REPOSITORY: "acme/app",
     AIC_REPOSITORY_POLICIES: JSON.stringify(validConfig.agentIssueConsole.repositories),
     AIC_DRY_RUN: "true",

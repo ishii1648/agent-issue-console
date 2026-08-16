@@ -9,7 +9,7 @@
     "build:app": "node scripts/build-app.mjs",
     "lint": "tsc --noEmit",
     "types:check": "tsc --noEmit",
-    "test": "tsc && node --test __tests__/*.node.test.mjs",
+    "test": "tsc --noEmit && vitest run --config vitest.config.ts",
     "test:worker": "vitest run --config vitest.config.ts",
     "preview": "tsc && node scripts/preview-ui.mjs"
   },

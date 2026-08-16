@@ -4,10 +4,10 @@
   "type": "module",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "test": "node --test scripts/*.test.mjs && pnpm --filter custom-gatekeeper test && pnpm --filter error-reporter test",
-    "build": "pnpm --filter custom-gatekeeper build && pnpm --filter error-reporter build",
-    "typecheck": "pnpm --filter custom-gatekeeper types:check && pnpm --filter error-reporter types:check",
-    "lint": "pnpm typecheck",
+    "test": "node --test scripts/*.test.mjs && cargo test --manifest-path packages/agent-issue-core/Cargo.toml --locked && pnpm --filter custom-gatekeeper test && pnpm --filter error-reporter test",
+    "build": "node scripts/rust.mjs build && pnpm --filter custom-gatekeeper build && pnpm --filter error-reporter build",
+    "typecheck": "cargo check --manifest-path packages/agent-issue-core/Cargo.toml --all-targets --locked && pnpm --filter custom-gatekeeper types:check && pnpm --filter error-reporter types:check",
+    "lint": "cargo fmt --manifest-path packages/agent-issue-core/Cargo.toml --check && cargo clippy --manifest-path packages/agent-issue-core/Cargo.toml --all-targets --locked -- -D warnings && pnpm typecheck",
     "check": "node scripts/deploy.mjs --check --config deployment.dry-run.jsonc",
     "check:deployment": "node scripts/deploy.mjs --check",
     "deploy": "node scripts/deploy.mjs"

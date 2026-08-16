@@ -4,6 +4,7 @@
   "workers": {
     "workshop": { "name": "agent-issue-console-dry-run", "route": { "workersDev": true } },
     "context": { "name": "agent-issue-console-context-dry-run" },
+    "agentIssueCore": { "name": "agent-issue-console-core-dry-run" },
     "customGatekeeper": { "name": "agent-issue-console-gatekeeper-dry-run" },
     "errorReporter": { "name": "agent-issue-console-errors-dry-run" }
   },
