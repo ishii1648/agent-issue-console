@@ -1,5 +1,8 @@
 node_modules/
+.pnpm-store/
 packages/*/dist/
+packages/*/dist-app/
+packages/*/dist-app-js/
 packages/*/.wrangler/
 packages/*/wrangler.prod.jsonc
 deployment.local.jsonc

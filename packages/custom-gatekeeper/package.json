@@ -5,7 +5,8 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm run build:app && tsc",
+    "build:app": "node scripts/build-app.mjs",
     "lint": "tsc --noEmit",
     "types:check": "tsc --noEmit",
     "test": "tsc && node --test __tests__/*.node.test.mjs",

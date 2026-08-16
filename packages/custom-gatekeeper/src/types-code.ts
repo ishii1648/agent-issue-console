@@ -6,6 +6,13 @@ export interface CustomDeploymentInfo {
 
 export type IntakeState = "understanding" | "investigating" | "needs_input" | "validating" | "creating_issue" | "completed" | "resolved_without_issue" | "failed";
 export type IntakeDisposition = "create_issue" | "duplicate" | "already_implemented" | "in_progress" | "not_substantiated" | "out_of_scope" | "blocked" | "needs_input";
+export interface IntakeEvidenceResult {
+  kind: "repository" | "code" | "issue" | "pull_request" | "commit" | "ui";
+  source: string;
+  summary: string;
+  capturedAt: string;
+  screenshotDataUrl?: string;
+}
 export interface IntakeResult {
   id: string;
   repository: string;
@@ -17,6 +24,7 @@ export interface IntakeResult {
   question?: string;
   issueUrl?: string;
   evidenceCount: number;
+  evidence: IntakeEvidenceResult[];
 }
 export interface MonitorSummary {
   ready: number;
@@ -32,10 +40,6 @@ export interface MonitorSummary {
 export interface CustomSession {
   /** Returns deployment identity and instructions after recording an observation. */
   getDeploymentInfo(): Promise<CustomDeploymentInfo>;
-  /** Investigates a request and creates a validated Issue automatically when every policy gate passes. */
-  submitIntake(request: string, repository?: string, uiRelated?: boolean): Promise<IntakeResult>;
-  /** Answers the single pending product question and resumes from stored evidence. */
-  answerIntake(intakeId: string, answer: string, uiRelated?: boolean): Promise<IntakeResult>;
   /** Returns one persisted intake owned by the connected operator. */
   getIntake(intakeId: string): Promise<IntakeResult | null>;
   /** Lists persisted intakes, newest first. */

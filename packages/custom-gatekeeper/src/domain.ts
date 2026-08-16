@@ -59,6 +59,13 @@ export interface Evidence {
   excerpt?: string;
   capturedAt: string;
   metadata?: Record<string, string | number | boolean | null>;
+  visual?: {
+    mimeType: "image/webp" | "image/png" | "image/jpeg";
+    base64: string;
+    viewport: { width: number; height: number };
+    environment: string;
+    requestedUrl: string;
+  };
 }
 
 export interface ValidationDecision {
@@ -194,4 +201,3 @@ export function parseRepository(fullName: string): RepositoryRef {
 export function isTerminalState(state: IntakeState): boolean {
   return state === "completed" || state === "resolved_without_issue" || state === "failed";
 }
-

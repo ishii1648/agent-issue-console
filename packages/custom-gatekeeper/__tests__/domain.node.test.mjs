@@ -64,7 +64,10 @@ describe("required Create scenarios", () => {
 
   it("collects UI evidence or asks when it cannot establish current UI", async () => {
     const visible = harness([createDecision], {}, { ...policy, previewUrl: "https://preview.example.com/app" });
-    assert.ok((await visible.workflow.submit({ ownerId: "u", repository: "acme/app", request: "Improve mobile jobs", uiRelated: true })).evidence.some((e) => e.kind === "ui"));
+    const visibleResult = await visible.workflow.submit({ ownerId: "u", repository: "acme/app", request: "Improve mobile jobs", uiRelated: true });
+    const visualEvidence = visibleResult.evidence.find((e) => e.kind === "ui");
+    assert.equal(visualEvidence?.visual?.base64, "base64");
+    assert.deepEqual(visualEvidence?.visual?.viewport, { width: 390, height: 844 });
     const unavailable = harness([createDecision]);
     const waiting = await unavailable.workflow.submit({ ownerId: "u", repository: "acme/app", request: "Improve mobile jobs", uiRelated: true });
     assert.equal(waiting.state, "needs_input"); assert.equal(unavailable.llm.calls.length, 0);

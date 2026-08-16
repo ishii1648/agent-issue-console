@@ -54,7 +54,9 @@ for the chosen account.
 Deploy only after Access, Worker identities, storage ownership, and route are explicitly approved.
 In `/admin`, enable the Agent Issue Console Gatekeeper for intended operators, keep arbitrary
 connectors disabled, and install the product agent instructions. The Gatekeeper advertises a
-full-page management app titled Agent Issue Console; standard Workshop chat is the Create surface.
+full-page management app titled Agent Issue Console; its chat-oriented Create panel is the write
+surface. The agent-facing session is read-only so side effects cannot bypass the Gatekeeper action
+boundary.
 
 Set `dryRun` to `false` only after a successful test-repository E2E and label creation. Keep
 `autoQueueAfterCreate` false for the MVP.

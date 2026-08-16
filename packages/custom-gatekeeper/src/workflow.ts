@@ -93,7 +93,16 @@ export class AgentIssueWorkflow {
           const preview = assertSafePreviewUrl(policy.previewUrl, policy.previewHostnameAllowlist);
           const visual = await this.dependencies.browser.capture(preview.href, { environment: "preview", width: 390, height: 844 });
           assertSafePreviewUrl(visual.finalUrl, policy.previewHostnameAllowlist);
-          this.addEvidence(intake, "ui", visual.finalUrl, `${visual.title}; viewport ${visual.viewport.width}×${visual.viewport.height}; ${visual.mainText}`, visual.accessibility);
+          const evidence = this.addEvidence(intake, "ui", visual.finalUrl, `${visual.title}; viewport ${visual.viewport.width}×${visual.viewport.height}; ${visual.mainText}`, visual.accessibility);
+          if (evidence && visual.screenshot) {
+            evidence.visual = {
+              mimeType: "image/webp",
+              base64: visual.screenshot,
+              viewport: visual.viewport,
+              environment: visual.environment,
+              requestedUrl: visual.requestedUrl,
+            };
+          }
         } else if (policy.requireVisualEvidenceForUi && code.length === 0) {
           return this.needInput(intake, "現在のUIを確認できるallowlist済みpreview URLまたはスクリーンショットを提示してください。");
         }
@@ -198,16 +207,18 @@ export class AgentIssueWorkflow {
     return intake;
   }
 
-  private addEvidence(intake: IntakeSnapshot, kind: Evidence["kind"], source: string, summary: string, excerpt?: string): void {
-    if (intake.evidence.some((item) => item.kind === kind && item.source === source)) return;
-    intake.evidence.push({
+  private addEvidence(intake: IntakeSnapshot, kind: Evidence["kind"], source: string, summary: string, excerpt?: string): Evidence | undefined {
+    if (intake.evidence.some((item) => item.kind === kind && item.source === source)) return undefined;
+    const evidence: Evidence = {
       id: `${kind}:${intake.evidence.length + 1}`,
       kind,
       source,
       summary: redactSecrets(summary).slice(0, 2_000),
       excerpt: excerpt ? redactSecrets(excerpt).slice(0, 4_000) : undefined,
       capturedAt: this.now(),
-    });
+    };
+    intake.evidence.push(evidence);
+    return evidence;
   }
 
   private now(): string { return (this.dependencies.clock?.now() ?? new Date()).toISOString(); }
@@ -220,4 +231,3 @@ export class AgentIssueWorkflow {
 function sanitizeDecision(decision: ValidationDecision): ValidationDecision {
   return JSON.parse(redactSecrets(JSON.stringify(decision))) as ValidationDecision;
 }
-

@@ -1,5 +1,12 @@
 import { createServer } from "node:http";
-import { AGENT_ISSUE_CONSOLE_HTML } from "../dist/ui.js";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const AGENT_ISSUE_CONSOLE_HTML = readFileSync(
+  resolve(fileURLToPath(new URL("..", import.meta.url)), "src/generated/app.txt"),
+  "utf8",
+);
 
 const port = Number(process.env.AIC_PREVIEW_PORT ?? 8787);
 createServer((request, response) => {

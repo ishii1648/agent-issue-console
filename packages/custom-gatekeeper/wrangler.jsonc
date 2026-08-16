@@ -12,6 +12,10 @@
     {
       "tag": "v0",
       "new_sqlite_classes": ["CustomGatekeeper"]
+    },
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AgentIssueState"]
     }
   ],
   "vars": {

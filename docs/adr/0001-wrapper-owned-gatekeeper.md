@@ -12,11 +12,10 @@ service bindings, runtime agent instructions, and Blueprints while pinning Cloud
 ## Decision
 
 Implement policy and integrations in the wrapper-owned custom Gatekeeper. Use the standard Workshop
-chat as intake and a Gadget/HTTP shell for Monitor. Do not modify the submodule.
+chat capability and the Gatekeeper App UI for intake and Monitor. Do not modify the submodule.
 
 ## Consequences
 
 Upstream updates remain a gitlink change, and capability enforcement cannot be bypassed by prompts.
 The deployment must configure the product Gatekeeper and install/feature the Monitor blueprint. A
 fully bespoke top-level navigation item would require upstream frontend work and is deferred.
-
