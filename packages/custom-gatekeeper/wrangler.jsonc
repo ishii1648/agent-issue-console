@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
-  "name": "custom-gatekeeper",
+  "name": "agent-issue-console-gatekeeper",
   "main": ".wrangler/validate/src/index.ts",
   "build": {
     "command": "pnpm exec capnweb-validate build --out .wrangler/validate",
@@ -16,7 +16,20 @@
   ],
   "vars": {
     "CUSTOM_NAME": "Example organization",
-    "CUSTOM_MESSAGE": "Replace this with information useful to your organization."
+    "CUSTOM_MESSAGE": "Replace this with information useful to your organization.",
+    "AIC_DEFAULT_REPOSITORY": "ishii1648/agent-issue-console",
+    "AIC_REPOSITORY_POLICIES": "[]",
+    "AIC_DRY_RUN": "true",
+    "AIC_LLM_PROVIDER": "opencode-go",
+    "AIC_LLM_MODEL": "gpt-5.6-luna",
+    "AIC_LLM_BASE_URL": "https://opencode.ai/zen/go/v1",
+    "AIC_LLM_TIMEOUT_MS": "45000",
+    "AIC_LLM_RETRIES": "2",
+    "AIC_MAX_INVESTIGATION_STEPS": "20",
+    "AIC_MAX_CONTEXT_CHARACTERS": "60000",
+    "AIC_MAX_OUTPUT_CHARACTERS": "8000",
+    "AIC_MAX_OUTPUT_TOKENS": "4000",
+    "AIC_BROWSER_TIMEOUT_MS": "30000"
   },
   "observability": {
     "enabled": true,
