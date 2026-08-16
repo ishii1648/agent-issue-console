@@ -1,0 +1,61 @@
+{
+  // Non-production, non-deployable identities used only for build and Wrangler dry-run validation.
+  "accountId": "00000000000000000000000000000000",
+  "workers": {
+    "workshop": { "name": "agent-issue-console-dry-run", "route": { "workersDev": true } },
+    "context": { "name": "agent-issue-console-context-dry-run" },
+    "customGatekeeper": { "name": "agent-issue-console-gatekeeper-dry-run" },
+    "errorReporter": { "name": "agent-issue-console-errors-dry-run" }
+  },
+  "access": {
+    "issuer": "https://dry-run.cloudflareaccess.com",
+    "audience": "dry-run-not-a-real-access-audience",
+    "admins": ["operator@example.invalid"]
+  },
+  "aiGateway": { "enabled": false },
+  "context": { "sharingDomain": "dry-run", "kvNamespaceId": null },
+  "customGatekeeper": {
+    "name": "Agent Issue Console (dry-run)",
+    "message": "Synthetic configuration for local build and deploy dry-run only."
+  },
+  "agentIssueConsole": {
+    "defaultRepository": "ishii1648/agent-issue-console",
+    "repositories": [{
+      "repository": "ishii1648/agent-issue-console",
+      "validationLabel": "agent-issue:validated",
+      "queueLabel": "codex-loop:ready",
+      "autoQueueAfterCreate": false,
+      "statusLabels": {
+        "ready": "codex-loop:ready",
+        "running": "codex-loop:running",
+        "needsInput": "codex-loop:needs-input",
+        "failed": "codex-loop:failed",
+        "done": "codex-loop:done"
+      },
+      "previewUrl": null,
+      "previewHostnameAllowlist": [],
+      "requireVisualEvidenceForUi": false
+    }],
+    "dryRun": true,
+    "llm": {
+      "provider": "opencode-go",
+      "model": "gpt-5.6-luna",
+      "baseUrl": "https://opencode.ai/zen/go/v1",
+      "timeoutMs": 45000,
+      "retries": 2,
+      "maxInvestigationSteps": 20,
+      "maxContextCharacters": 60000,
+      "maxOutputCharacters": 8000,
+      "maxOutputTokens": 4000
+    },
+    "browser": { "timeoutMs": 30000 }
+  },
+  "errorReporting": { "enabled": true, "environment": "dry-run", "release": null },
+  "resources": { "blueprintsKvNamespaceId": null, "avatarsKvNamespaceId": null, "blueprintContentBucket": null },
+  "observability": {
+    "enabled": true,
+    "headSamplingRate": 1,
+    "logs": { "invocationLogs": false },
+    "traces": { "enabled": false, "headSamplingRate": 0.1 }
+  }
+}

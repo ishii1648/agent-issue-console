@@ -29,6 +29,19 @@ const requiredPaths = [
   "context.sharingDomain",
   "customGatekeeper.name",
   "customGatekeeper.message",
+  "agentIssueConsole.defaultRepository",
+  "agentIssueConsole.repositories",
+  "agentIssueConsole.dryRun",
+  "agentIssueConsole.llm.provider",
+  "agentIssueConsole.llm.model",
+  "agentIssueConsole.llm.baseUrl",
+  "agentIssueConsole.llm.timeoutMs",
+  "agentIssueConsole.llm.retries",
+  "agentIssueConsole.llm.maxInvestigationSteps",
+  "agentIssueConsole.llm.maxContextCharacters",
+  "agentIssueConsole.llm.maxOutputCharacters",
+  "agentIssueConsole.llm.maxOutputTokens",
+  "agentIssueConsole.browser.timeoutMs",
   "observability.enabled",
   "observability.headSamplingRate",
   "observability.logs.invocationLogs",
@@ -107,6 +120,15 @@ export function validateConfig(config) {
     "observability.logs.invocationLogs",
     "observability.traces.enabled",
     "observability.traces.headSamplingRate",
+    "agentIssueConsole.repositories",
+    "agentIssueConsole.dryRun",
+    "agentIssueConsole.llm.timeoutMs",
+    "agentIssueConsole.llm.retries",
+    "agentIssueConsole.llm.maxInvestigationSteps",
+    "agentIssueConsole.llm.maxContextCharacters",
+    "agentIssueConsole.llm.maxOutputCharacters",
+    "agentIssueConsole.llm.maxOutputTokens",
+    "agentIssueConsole.browser.timeoutMs",
   ].includes(path));
   for (const path of stringPaths) {
     if (typeof valueAt(config, path) !== "string") {
@@ -216,6 +238,54 @@ export function validateConfig(config) {
   const traceSampling = config.observability.traces.headSamplingRate;
   if (typeof traceSampling !== "number" || traceSampling < 0 || traceSampling > 1) {
     throw new Error("Observability trace sampling must be between 0 and 1.");
+  }
+
+  const consoleConfig = config.agentIssueConsole;
+  if (typeof consoleConfig.dryRun !== "boolean") {
+    throw new Error("Agent Issue Console dryRun must be a boolean.");
+  }
+  if (!Array.isArray(consoleConfig.repositories) || !consoleConfig.repositories.length) {
+    throw new Error("Agent Issue Console requires at least one repository policy.");
+  }
+  const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+  if (!repositoryPattern.test(consoleConfig.defaultRepository) ||
+      !consoleConfig.repositories.some((policy) =>
+        policy.repository.toLowerCase() === consoleConfig.defaultRepository.toLowerCase())) {
+    throw new Error("Agent Issue Console default repository must be present in the allowlist.");
+  }
+  for (const policy of consoleConfig.repositories) {
+    if (!repositoryPattern.test(policy.repository) ||
+        !policy.validationLabel || !policy.queueLabel ||
+        typeof policy.autoQueueAfterCreate !== "boolean" ||
+        !policy.statusLabels ||
+        !["ready", "running", "needsInput", "failed", "done"].every((key) =>
+          typeof policy.statusLabels[key] === "string" && policy.statusLabels[key])) {
+      throw new Error(`Invalid Agent Issue Console repository policy: ${policy.repository ?? "unknown"}.`);
+    }
+    if (!Array.isArray(policy.previewHostnameAllowlist) ||
+        typeof policy.requireVisualEvidenceForUi !== "boolean") {
+      throw new Error(`Invalid preview policy for ${policy.repository}.`);
+    }
+    if (policy.previewUrl !== null && policy.previewUrl !== undefined) {
+      const preview = new URL(policy.previewUrl);
+      if (preview.protocol !== "https:" || preview.username || preview.password ||
+          !policy.previewHostnameAllowlist.includes(preview.hostname)) {
+        throw new Error(`Preview URL for ${policy.repository} must be HTTPS and hostname-allowlisted.`);
+      }
+    }
+  }
+  if (consoleConfig.llm.provider !== "opencode-go" ||
+      new URL(consoleConfig.llm.baseUrl).protocol !== "https:") {
+    throw new Error("Agent Issue Console LLM must use the configured OpenCode Go HTTPS boundary.");
+  }
+  for (const key of ["timeoutMs", "maxInvestigationSteps", "maxContextCharacters", "maxOutputCharacters", "maxOutputTokens"]) {
+    if (!Number.isInteger(consoleConfig.llm[key]) || consoleConfig.llm[key] <= 0) {
+      throw new Error(`Agent Issue Console LLM ${key} must be a positive integer.`);
+    }
+  }
+  if (!Number.isInteger(consoleConfig.llm.retries) || consoleConfig.llm.retries < 0 ||
+      !Number.isInteger(consoleConfig.browser.timeoutMs) || consoleConfig.browser.timeoutMs <= 0) {
+    throw new Error("Agent Issue Console retry and browser timeout values are invalid.");
   }
   return config;
 }
@@ -340,6 +410,19 @@ export function generateConfigs(config, bases) {
   customGatekeeper.vars = {
     CUSTOM_NAME: config.customGatekeeper.name,
     CUSTOM_MESSAGE: config.customGatekeeper.message,
+    AIC_DEFAULT_REPOSITORY: config.agentIssueConsole.defaultRepository,
+    AIC_REPOSITORY_POLICIES: JSON.stringify(config.agentIssueConsole.repositories),
+    AIC_DRY_RUN: String(config.agentIssueConsole.dryRun),
+    AIC_LLM_PROVIDER: config.agentIssueConsole.llm.provider,
+    AIC_LLM_MODEL: config.agentIssueConsole.llm.model,
+    AIC_LLM_BASE_URL: config.agentIssueConsole.llm.baseUrl,
+    AIC_LLM_TIMEOUT_MS: String(config.agentIssueConsole.llm.timeoutMs),
+    AIC_LLM_RETRIES: String(config.agentIssueConsole.llm.retries),
+    AIC_MAX_INVESTIGATION_STEPS: String(config.agentIssueConsole.llm.maxInvestigationSteps),
+    AIC_MAX_CONTEXT_CHARACTERS: String(config.agentIssueConsole.llm.maxContextCharacters),
+    AIC_MAX_OUTPUT_CHARACTERS: String(config.agentIssueConsole.llm.maxOutputCharacters),
+    AIC_MAX_OUTPUT_TOKENS: String(config.agentIssueConsole.llm.maxOutputTokens),
+    AIC_BROWSER_TIMEOUT_MS: String(config.agentIssueConsole.browser.timeoutMs),
   };
 
   if (errorReporter) {
@@ -399,7 +482,12 @@ function build(config) {
 
 async function main() {
   requireSubmodule();
-  const config = await readDeployment(join(root, "deployment.jsonc"));
+  const configFlag = process.argv.indexOf("--config");
+  const configName = configFlag >= 0 ? process.argv[configFlag + 1] : "deployment.jsonc";
+  if (!configName || configName.includes("..") || resolve(root, configName) !== join(root, configName)) {
+    throw new Error("--config must name a file in the repository root.");
+  }
+  const config = await readDeployment(join(root, configName));
   const generated = generateConfigs(config, {
     workshop: await readJsonc(join(root, "cloudflare-os/packages/workshop-backend/wrangler.jsonc")),
     context: await readJsonc(join(root, "cloudflare-os/packages/gatekeeper-context/wrangler.jsonc")),

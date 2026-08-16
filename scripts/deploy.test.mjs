@@ -30,6 +30,38 @@ const validConfig = {
     artifacts: { enabled: true, namespace: "acme-context-collections" },
   },
   customGatekeeper: { name: "Acme", message: "Use the company handbook." },
+  agentIssueConsole: {
+    defaultRepository: "acme/app",
+    repositories: [{
+      repository: "acme/app",
+      validationLabel: "agent-issue:validated",
+      queueLabel: "codex-loop:ready",
+      autoQueueAfterCreate: false,
+      statusLabels: {
+        ready: "codex-loop:ready",
+        running: "codex-loop:running",
+        needsInput: "codex-loop:needs-input",
+        failed: "codex-loop:failed",
+        done: "codex-loop:done",
+      },
+      previewUrl: null,
+      previewHostnameAllowlist: [],
+      requireVisualEvidenceForUi: false,
+    }],
+    dryRun: true,
+    llm: {
+      provider: "opencode-go",
+      model: "gpt-5.6-luna",
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      timeoutMs: 45000,
+      retries: 2,
+      maxInvestigationSteps: 20,
+      maxContextCharacters: 60000,
+      maxOutputCharacters: 8000,
+      maxOutputTokens: 4000,
+    },
+    browser: { timeoutMs: 30000 },
+  },
   errorReporting: { enabled: true, environment: "production", release: "abc123" },
   resources: {
     blueprintsKvNamespaceId: "blueprints-kv-id",
@@ -177,6 +209,19 @@ test("generates Access-mode Workshop, Context, and custom Gatekeeper configs", a
   assert.deepEqual(generated.customGatekeeper.vars, {
     CUSTOM_NAME: "Acme",
     CUSTOM_MESSAGE: "Use the company handbook.",
+    AIC_DEFAULT_REPOSITORY: "acme/app",
+    AIC_REPOSITORY_POLICIES: JSON.stringify(validConfig.agentIssueConsole.repositories),
+    AIC_DRY_RUN: "true",
+    AIC_LLM_PROVIDER: "opencode-go",
+    AIC_LLM_MODEL: "gpt-5.6-luna",
+    AIC_LLM_BASE_URL: "https://opencode.ai/zen/go/v1",
+    AIC_LLM_TIMEOUT_MS: "45000",
+    AIC_LLM_RETRIES: "2",
+    AIC_MAX_INVESTIGATION_STEPS: "20",
+    AIC_MAX_CONTEXT_CHARACTERS: "60000",
+    AIC_MAX_OUTPUT_CHARACTERS: "8000",
+    AIC_MAX_OUTPUT_TOKENS: "4000",
+    AIC_BROWSER_TIMEOUT_MS: "30000",
   });
   assert.equal(generated.errorReporter.name, "acme-cloudflare-os-errors");
   assert.deepEqual(generated.workshop.observability.logs, {
