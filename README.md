@@ -1,3 +1,29 @@
+# Agent Issue Console
+
+Agent Issue Console is a Cloudflare OS application for turning rough engineering requests into
+validated, idempotent GitHub Issues and monitoring their downstream `codex-issue-loop` status.
+GitHub is the workflow source of truth; this application never executes shell commands, modifies
+code, controls a Mac mini, or operates the coding loop.
+
+The repository pins [Cloudflare OS](https://github.com/cloudflare/cloudflare-os) as a submodule and
+keeps product logic in the wrapper-owned Agent Issue Console Gatekeeper. See the
+[product brief](docs/product-brief.md), [architecture](docs/architecture.md),
+[security model](docs/security.md), and [setup guide](docs/setup.md).
+
+```sh
+git submodule update --init --recursive
+pnpm install
+pnpm --dir cloudflare-os install
+pnpm test
+pnpm typecheck
+pnpm check
+```
+
+`deployment.jsonc` is the operator-owned production control surface. The separate
+`deployment.dry-run.jsonc` contains synthetic non-production identities used by `pnpm check`.
+
+---
+
 <p align="center">
   <img src="docs/assets/cloudflareOS.svg" alt="Cloudflare OS" width="480">
 </p>
